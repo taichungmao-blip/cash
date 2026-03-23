@@ -94,29 +94,39 @@ if __name__ == "__main__":
     col_code = get_col_name(df_data.columns, '代號')
     col_type = get_col_name(df_data.columns, '型態')
     col_amount = get_col_name(df_data.columns, '金額')
-    col_currency = get_col_name(df_data.columns, '幣別')
+    col_issue_price = get_col_name(df_data.columns, '發行價格') # 新增：抓取發行價格欄位
     col_receipt = get_col_name(df_data.columns, '收文日期')
     col_effective = get_col_name(df_data.columns, '生效日期')
+    # 幣別欄位已移除
     
     if col_target:
         # 篩選包含「現金增資」的資料 (忽略空值)
         cb_data = df_data[df_data[col_target].astype(str).str.contains('現金增資', na=False)]
         
         if cb_data.empty:
-            print("目前沒有轉換公司債的案件。")
+            print("目前沒有現金增資的案件。")
         
         for index, row in cb_data.iterrows():
             company_name = row[col_company] if col_company else '未知公司'
             case_type = row[col_target] if col_target else '未知案件'
             stock_code = row[col_code] if col_code else '未知'
             company_type = row[col_type] if col_type else '未知'
-            currency = row[col_currency] if col_currency else '未知'
             receipt_date = row[col_receipt] if col_receipt else '未知'
             effective_date = row[col_effective] if col_effective else '未知'
             
+            # --- 處理發行價格 ---
+            issue_price_val = row[col_issue_price] if col_issue_price else ''
+            if pd.notna(issue_price_val) and str(issue_price_val).strip() != '':
+                try:
+                    issue_price = f"{float(issue_price_val):.2f}".rstrip('0').rstrip('.')
+                except ValueError:
+                    issue_price = str(issue_price_val).strip()
+            else:
+                issue_price = '未訂定'
+
             # --- 處理金額：轉換為「億」 ---
-            amount_val = row[col_amount] if col_amount else '未知'
-            if str(amount_val) != '未知':
+            amount_val = row[col_amount] if col_amount else ''
+            if pd.notna(amount_val) and str(amount_val).strip() != '' and str(amount_val) != '未知':
                 try:
                     # 轉成字串並去除千分位逗號，再轉成浮點數計算
                     clean_amount = float(str(amount_val).replace(',', '').strip())
@@ -131,11 +141,14 @@ if __name__ == "__main__":
                     
                     # 格式化輸出，最多顯示小數點後兩位，並去掉結尾多餘的 0 和小數點
                     amount = f"{amount_in_yi:.2f}".rstrip('0').rstrip('.') + " 億"
+                    if amount == " 億" or amount == ". 億":
+                        amount = "0 億"
                 except (ValueError, TypeError):
                     # 如果資料是純文字或異常導致無法計算，就維持原樣
                     amount = str(amount_val)
             else:
-                amount = '未知'
+                # 金額無資料或未知時，預設顯示 0 億
+                amount = '0 億'
             
             # 建立唯一識別碼 (加入收文日期，避免同公司不同次發行被略過)
             record_id = f"{company_name}_{case_type}_{receipt_date}"
@@ -148,7 +161,7 @@ if __name__ == "__main__":
                     f"**公司型態**：{company_type}\n"
                     f"**案件類別**：{case_type}\n"
                     f"**金額**：{amount}\n"
-                    f"**幣別**：{currency}\n"
+                    f"**發行價格**：{issue_price}\n"
                     f"**收文日期**：{receipt_date}\n"
                     f"**生效日期**：{effective_date}\n"
                     f"*(資料來源：金管會證期局)*"
