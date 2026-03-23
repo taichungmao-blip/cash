@@ -1,0 +1,41 @@
+name: Daily CashIncrease Notify
+
+on:
+  schedule:
+    # 每天的 UTC 02:00 (台灣早上10點) 和 UTC 04:00 (台灣中午12點) 執行
+    - cron: '0 3,5 * * *'
+  workflow_dispatch: # 允許你隨時手動點擊按鈕執行測試
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 允許 Actions 寫入程式碼回儲存庫
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' # 可依你的開發環境調整
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Python script
+        env:
+          # 將 GitHub Secret 傳遞給 Python 環境變數
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python cbissue.py # 這裡請換成你實際的 python 檔案名稱
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add notified_cbs.txt
+          # 如果有新通知，檔案會有變動，就把它 commit 並推回 master/main 分支
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update notified list" && git push)
