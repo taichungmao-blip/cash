@@ -66,7 +66,7 @@ def get_115_fsc_excel_data():
         
     try:
         # 讓 pandas 透過真實的暫存檔路徑與副檔名來讀取，指定 header=2
-        df = pd.read_excel(tmp_path, header=2)
+        df = pd.read_excel(tmp_path, header=2, engine='openpyxl')
     finally:
         # 確保讀取完畢或發生錯誤時，都會把暫存檔刪除，不佔用空間
         if os.path.exists(tmp_path):
