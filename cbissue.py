@@ -7,13 +7,13 @@ import urllib3
 import tempfile
 import os
 import yfinance as yf
-import logging # 新增：用來控制 yfinance 的日誌輸出層級
+import logging
 
 # 關閉 SSL 憑證警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 隱藏 yfinance 預設的警告與錯誤訊息
-yf.logger.setLevel(logging.CRITICAL)
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
 # --- 設定區塊 ---
 # 從 GitHub Actions 的環境變數 (Secrets) 中讀取 Webhook 網址
