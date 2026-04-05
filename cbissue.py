@@ -6,10 +6,14 @@ import io
 import urllib3
 import tempfile
 import os
-import yfinance as yf # 新增：用來抓取股價
+import yfinance as yf
+import logging # 新增：用來控制 yfinance 的日誌輸出層級
 
 # 關閉 SSL 憑證警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# 隱藏 yfinance 預設的警告與錯誤訊息
+yf.logger.setLevel(logging.CRITICAL)
 
 # --- 設定區塊 ---
 # 從 GitHub Actions 的環境變數 (Secrets) 中讀取 Webhook 網址
@@ -57,19 +61,15 @@ def get_115_fsc_excel_data():
     file_resp = requests.get(file_url, verify=False)
     file_resp.raise_for_status()
     
-    # 從網址判斷是 .xlsx 還是 .xls，如果都沒有就預設給 .xls
     ext = '.xlsx' if '.xlsx' in file_url.lower() else '.xls'
     
-    # 建立暫存檔並寫入內容
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         tmp.write(file_resp.content)
         tmp_path = tmp.name
         
     try:
-        # 讓 pandas 透過真實的暫存檔路徑與副檔名來讀取，指定 header=2
         df = pd.read_excel(tmp_path, header=2, engine='openpyxl')
     finally:
-        # 確保讀取完畢或發生錯誤時，都會把暫存檔刪除，不佔用空間
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
             
@@ -82,31 +82,37 @@ def get_col_name(columns, keyword):
             return col
     return None
 
-def get_stock_price(stock_code):
-    """取得股票最新收盤價"""
+def get_stock_price(stock_code, company_type):
+    """依據公司型態取得股票最新收盤價"""
     if not stock_code or str(stock_code) == '未知':
         return '未知'
     
-    # yfinance 針對台股的代碼需要加上 .TW (上市) 或 .TWO (上櫃/興櫃)
-    for suffix in ['.TW', '.TWO']:
-        try:
-            ticker = yf.Ticker(f"{stock_code}{suffix}")
-            hist = ticker.history(period="1d")
-            if not hist.empty:
-                # 取得最新一筆的收盤價
-                return f"{hist['Close'].iloc[0]:.2f}"
-        except Exception:
-            continue
+    company_type_str = str(company_type)
+    
+    # 依據型態給予對應的 Yahoo Finance 代碼後綴
+    if '上市' in company_type_str:
+        suffix = '.TW'
+    elif '上櫃' in company_type_str or '興櫃' in company_type_str:
+        suffix = '.TWO'
+    else:
+        return '無報價' # 例如單純「公開發行」等尚無交易代號的狀況
+
+    try:
+        ticker = yf.Ticker(f"{stock_code}{suffix}")
+        hist = ticker.history(period="1d")
+        if not hist.empty:
+            return f"{hist['Close'].iloc[0]:.2f}"
+    except Exception:
+        pass
+        
     return '無法取得'
 
 if __name__ == "__main__":
     df_data = get_115_fsc_excel_data()
     notified_records = load_notified_records()
     
-    # 清理欄位名稱 (去除換行與空白)
     df_data.columns = df_data.columns.astype(str).str.replace('\n', '').str.replace(' ', '')
     
-    # 動態抓取實際欄位名稱
     col_target = get_col_name(df_data.columns, '案件類別')
     col_company = get_col_name(df_data.columns, '公司名稱')
     col_code = get_col_name(df_data.columns, '代號')
@@ -117,7 +123,6 @@ if __name__ == "__main__":
     col_effective = get_col_name(df_data.columns, '生效日期')
     
     if col_target:
-        # 篩選包含「現金增資」的資料 (忽略空值)
         cb_data = df_data[df_data[col_target].astype(str).str.contains('現金增資', na=False)]
         
         if cb_data.empty:
@@ -127,13 +132,11 @@ if __name__ == "__main__":
             company_name = row[col_company] if col_company else '未知公司'
             case_type = row[col_target] if col_target else '未知案件'
             
-            # 處理證券代號 (避免 Pandas 轉成浮點數如 7729.0)
             stock_code_val = row[col_code] if col_code else ''
             stock_code = str(stock_code_val).replace('.0', '').strip() if pd.notna(stock_code_val) and str(stock_code_val) != '' else '未知'
             
             company_type = row[col_type] if col_type else '未知'
             
-            # 處理收文日期與生效日期 (移除後面的 .0)
             receipt_val = row[col_receipt] if col_receipt else ''
             receipt_date = str(receipt_val).replace('.0', '').strip() if pd.notna(receipt_val) and str(receipt_val) != '' else '未知'
             
@@ -150,7 +153,7 @@ if __name__ == "__main__":
             else:
                 issue_price = '未訂定'
 
-            # --- 處理金額：轉換為「億」 ---
+            # --- 處理金額 ---
             amount_val = row[col_amount] if col_amount else ''
             if pd.notna(amount_val) and str(amount_val).strip() != '' and str(amount_val) != '未知':
                 try:
@@ -170,17 +173,13 @@ if __name__ == "__main__":
             else:
                 amount = '0 億'
             
-            # --- 新增功能區塊 ---
-            # 1. 抓取當日股價或前日收盤價
-            current_price = get_stock_price(stock_code)
-            # 2. 建立 Yahoo 技術分析連結
+            # 傳入 company_type 進行準確抓價
+            current_price = get_stock_price(stock_code, company_type)
             yahoo_link = f"https://tw.stock.yahoo.com/quote/{stock_code}/technical-analysis" if stock_code != '未知' else '無連結'
             
-            # 建立唯一識別碼
             record_id = f"{company_name}_{case_type}_{receipt_date}"
             
             if record_id not in notified_records:
-                # 3 & 4. 調整 Discord 訊息內容 (移除 .0，並移除資料來源)
                 msg = (
                     f"🔔 **新現金增資案件通知** 🔔\n"
                     f"**證券代號**：{stock_code}\n"
