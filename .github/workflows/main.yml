@@ -2,7 +2,7 @@ name: Daily CashIncrease Notify
 
 on:
   schedule:
-    # 每天的 UTC 02:00 (台灣早上10點) 和 UTC 04:00 (台灣中午12點) 執行
+    # 每天的 UTC 02:00 (台灣早上10點) 和 UTC 05:00 (台灣中午12點) 執行
     - cron: '0 3,5 * * *'
   workflow_dispatch: # 允許你隨時手動點擊按鈕執行測試
 
