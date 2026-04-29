@@ -8,6 +8,7 @@ import tempfile
 import os
 import yfinance as yf
 import logging
+from urllib.parse import urljoin # 記得在最上面 import 這個
 
 # 關閉 SSL 憑證警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -48,7 +49,13 @@ def send_discord_notify(message):
 def get_115_fsc_excel_data():
     """爬取金管會 115 年度申報案件的 Excel 檔案"""
     url = "https://www.sfb.gov.tw/ch/home.jsp?id=1016&parentpath=0,6,52"
-    resp = requests.get(url, verify=False)
+    
+    # 建議加入基本的 User-Agent，降低被阻擋的機率
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    resp = requests.get(url, headers=headers, verify=False)
     soup = BeautifulSoup(resp.text, "html.parser")
     
     tables = soup.find_all("table", {"class": "table01 table02"})
@@ -56,10 +63,17 @@ def get_115_fsc_excel_data():
     
     # 抓取第 3 列，第 5 欄裡面的 EXCEL 下載連結
     tds = trs[2].find_all("td") 
-    file_url = tds[4].find("a").get("href") 
+    raw_file_url = tds[4].find("a").get("href")
     
-    file_resp = requests.get(file_url, verify=False)
+    # 【修改點 1】確保 URL 是完整的絕對路徑
+    file_url = urljoin(url, raw_file_url)
+    print(f"準備下載的檔案網址: {file_url}") # 讓 GitHub Actions 留存紀錄
+    
+    file_resp = requests.get(file_url, headers=headers, verify=False)
     file_resp.raise_for_status()
+    
+    # 【除錯點】印出下載內容的前 100 個字元，確認是不是被擋或是抓到 HTML
+    print(f"下載檔案前 100 Bytes: {file_resp.content[:100]}")
     
     ext = '.xlsx' if '.xlsx' in file_url.lower() else '.xls'
     
@@ -68,7 +82,12 @@ def get_115_fsc_excel_data():
         tmp_path = tmp.name
         
     try:
-        df = pd.read_excel(tmp_path, header=2, engine='openpyxl')
+        # 【修改點 2】動態決定 engine。如果是 .xls，不能用 openpyxl
+        # 註: 若要讀取舊版 .xls，你的環境需要安裝 xlrd 套件 (pip install xlrd)
+        if ext == '.xlsx':
+            df = pd.read_excel(tmp_path, header=2, engine='openpyxl')
+        else:
+            df = pd.read_excel(tmp_path, header=2, engine='xlrd') # 或者不寫 engine 讓 pandas 自動判斷
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
